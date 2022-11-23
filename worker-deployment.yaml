@@ -1,0 +1,51 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset-worker
+  labels:
+    app: superset-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: superset-worker
+  template:
+    metadata:
+      labels:
+        app: superset-worker
+    spec:
+      securityContext:
+        runAsUser: 0
+      initContainers:
+      - command:
+        - /bin/sh
+        - -c
+        - until nc -zv $DB_HOST $DB_PORT -w1; do echo 'waiting for db'; sleep 1; done
+        envFrom:
+        - secretRef:
+            name: 'superset-env'
+        image: 'busybox:latest'
+        imagePullPolicy: 'IfNotPresent'
+        name: wait-for-postgres
+      containers:
+        - name: superset
+          image: "apache/superset:latest"
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh","-c",". /app/pythonpath/superset_bootstrap.sh; celery --app=superset.tasks.celery_app:app worker"]
+          env:
+            - name: "SUPERSET_PORT"
+              value: "8088"
+          envFrom:
+            - secretRef:
+                name: "superset-env"
+          volumeMounts:
+            - name: superset-config
+              mountPath: "/app/pythonpath"
+              readOnly: true
+          resources:
+            {}
+      volumes:
+        - name: superset-config
+          secret:
+            secretName: superset-config
